@@ -1,6 +1,7 @@
 Param(
 	[string]$websiteName = "",
 	[string]$domainName = "",
+	[string]$appName = "",
 	[bool] $availableToOtherTenants = 0
 )
 
@@ -25,8 +26,12 @@ function validateParams {
 		Write-Host "Website name cannot be null." -ForegroundColor Red 
 		exit 1
 	}
-	if ($websiteName -notmatch '^((?!([mM][iI][cC][rR][oO][sS][oO][fF][tT]|[lL][oO][gG][iI][nN]|[wW][iI][nN][dD][oO][wW][sS]|[xX][bB][oO][xX]))[a-z0-9A-Z-]){1,52}$') { 
-		Write-Host "Website name can only consist of alphabets, numbers, and hyphen (-) and cannot contain reserved keywords ('LOGIN','MICROSOFT','WINDOWS','XBOX')." -ForegroundColor Red 
+	if ($websiteName -notmatch '!azurewebsites.net') { 
+		Write-Host "Teams apps does not allow azurewebsites.net in URL, use a custom domain.')." -ForegroundColor Red 
+		exit 1
+	}
+	if ($websiteName -notmatch 'https') { 
+		Write-Host "Teams apps needs https to function')." -ForegroundColor Red 
 		exit 1
 	}
 	if (!$domainName) { 
@@ -67,11 +72,14 @@ function getTenantIdFromDomainName {
 }
 
 if ([string]::IsNullOrEmpty($websiteName)) {
-	$websiteName = $(Write-Host "Enter you training portal’s website name (example: If your training portal URL is https://contosolearning.azurewebsites.net/ enter contosolearning):" -ForegroundColor Green -NoNewline; Read-Host).Trim()
+	$websiteName = $(Write-Host "Enter you teams app website name: (example: https://teamseid.municipality.se)" -ForegroundColor Green -NoNewline; Read-Host).Trim()
 }
 
 if ([string]::IsNullOrEmpty($domainName)) {
-	$domainName = $(Write-Host "Enter your Azure AD’s tenant domain name (example: contoso.onmicrosoft.com): " -ForegroundColor Green -NoNewline; Read-Host).Trim()
+	$domainName = $(Write-Host "Enter your Azure AD’s tenant domain name (example: municipality.onmicrosoft.com): " -ForegroundColor Green -NoNewline; Read-Host).Trim()
+}
+if ([string]::IsNullOrEmpty($appName)) {
+	$domainName = $(Write-Host "Enter your Azure AD application name (example: teamseid): " -ForegroundColor Green -NoNewline; Read-Host).Trim()
 }
 
 validateParams
@@ -80,11 +88,7 @@ $tenantId = getTenantIdFromDomainName($domainName)
 Write-Host "The script can take a few minutes to complete. Please wait... " -ForegroundColor Green
 
 #Initialize variables
-$appReplyURLs = @( "https://$websiteName.azurewebsites.net",
-	"https://$websiteName.azurewebsites.net/signin-azureAD",
-	"https://$websiteName-staging.azurewebsites.net/signin-azureAD",
-	"https://$websiteName.azurefd.net",
-	"https://$websiteName.azurefd.net/signin-azureAD")
+$appReplyURLs = @( $websiteName + "/login",
 	
 $identifierApi = New-Guid
 
@@ -93,9 +97,9 @@ $identifierApi = New-Guid
 ##################################
 
 #Check if app exists with the same name or not
-$existingApp = az ad app list --filter "displayname eq '$websiteName'" | ConvertFrom-Json
+$existingApp = az ad app list --filter "displayname eq '$appName'" | ConvertFrom-Json
 if ($existingApp) {
-	$response = $(Write-Host "The app with the name, '$websiteName' already exists. This action will delete the existing app and create a new app, do you want to continue? (Y/N): " -ForegroundColor Yellow -NoNewline; Read-Host)
+	$response = $(Write-Host "The app with the name, '$appName' already exists. This action will delete the existing app and create a new app, do you want to continue? (Y/N): " -ForegroundColor Yellow -NoNewline; Read-Host)
 	if ( $response -eq "Y" || $response -eq "y") {
 		# If app with the same name exists delete it before proceeding
 		az ad app delete --id $existingApp.appId
@@ -104,14 +108,15 @@ if ($existingApp) {
 }
 
 $aadApp = az ad app create `
-	--display-name $websiteName `
+	--display-name $appName `
 	--available-to-other-tenants $availableToOtherTenants `
 	--oauth2-allow-implicit-flow  false `
 	--reply-urls $appReplyURLs 
 
 $aadAppResult = $aadApp | ConvertFrom-Json
 $appId = $aadAppResult.appId
-$identifierUrlApi = "api://$appId"
+$domainOnlyURL = ([System.Uri]$websiteName).Host -replace '^www\.'
+$identifierUrlApi = "api://$domainOnlyURL/$appId/access_as_user"
 
 ##################################
 ###  Add scopes (oauth2Permissions)
@@ -159,6 +164,7 @@ $Outputs = [ordered]@{
 	"Client Secret" = $PwdCreds.password;
 	"Tenant Id"     = $PwdCreds.tenant;
 	"Tenant name"   = $domainName.Replace('.onmicrosoft.com', '');
+	"Teams App GUID - use this when creating the Teams App" = $PwdCreds.AppId;
 }
 
 $Outputs  | ConvertTo-Json 
