@@ -4,7 +4,6 @@ Param(
 	[string]$appName = "",
 	[bool] $availableToOtherTenants = 0
 )
-
 $userAccessScopeApi = '{
 		"lang": null,
 		"origin": "Application",		
@@ -26,12 +25,16 @@ function validateParams {
 		Write-Host "Website name cannot be null." -ForegroundColor Red 
 		exit 1
 	}
-	if ($websiteName -notmatch '!azurewebsites.net') { 
+	if ($websiteName -match 'azurewebsites.net') { 
 		Write-Host "Teams apps does not allow azurewebsites.net in URL, use a custom domain.')." -ForegroundColor Red 
 		exit 1
 	}
 	if ($websiteName -notmatch 'https') { 
 		Write-Host "Teams apps needs https to function')." -ForegroundColor Red 
+		exit 1
+	}
+	if($websiteName -like "*/") {
+		Write-Host "Do not use trailing slash in website name"
 		exit 1
 	}
 	if (!$domainName) { 
@@ -79,7 +82,7 @@ if ([string]::IsNullOrEmpty($domainName)) {
 	$domainName = $(Write-Host "Enter your Azure AD’s tenant domain name (example: municipality.onmicrosoft.com): " -ForegroundColor Green -NoNewline; Read-Host).Trim()
 }
 if ([string]::IsNullOrEmpty($appName)) {
-	$domainName = $(Write-Host "Enter your Azure AD application name (example: teamseid): " -ForegroundColor Green -NoNewline; Read-Host).Trim()
+	$appName = $(Write-Host "Enter your Azure AD application name (example: teamseid): " -ForegroundColor Green -NoNewline; Read-Host).Trim()
 }
 
 validateParams
@@ -88,7 +91,7 @@ $tenantId = getTenantIdFromDomainName($domainName)
 Write-Host "The script can take a few minutes to complete. Please wait... " -ForegroundColor Green
 
 #Initialize variables
-$appReplyURLs = @( $websiteName + "/login",
+$appReplyURLs = @( $websiteName + "/login")
 	
 $identifierApi = New-Guid
 
@@ -116,7 +119,8 @@ $aadApp = az ad app create `
 $aadAppResult = $aadApp | ConvertFrom-Json
 $appId = $aadAppResult.appId
 $domainOnlyURL = ([System.Uri]$websiteName).Host -replace '^www\.'
-$identifierUrlApi = "api://$domainOnlyURL/$appId/access_as_user"
+write-host $domainOnlyURL
+$identifierUrlApi = "api://$domainOnlyURL/$identifierApi"
 
 ##################################
 ###  Add scopes (oauth2Permissions)
@@ -164,8 +168,9 @@ $Outputs = [ordered]@{
 	"Client Secret" = $PwdCreds.password;
 	"Tenant Id"     = $PwdCreds.tenant;
 	"Tenant name"   = $domainName.Replace('.onmicrosoft.com', '');
-	"Teams App GUID - use this when creating the Teams App" = $PwdCreds.AppId;
+	"Teams App GUID - use this when creating the Teams App" = $identifierApi;
 }
 
 $Outputs  | ConvertTo-Json 
-Write-Host "Please copy the above values from the terminal to complete the next step(s) in the Microsoft Community Training platform login configuration flow." -ForegroundColor Green
+Write-Host "Please copy the above values from the terminal to complete the next step(s) in the Teams app setup." -ForegroundColor Green
+Write-Host "Go here: https://portal.azure.com/#blade/Microsoft_AAD_RegisteredApps/ApplicationMenuBlade/CallAnAPI/appId/$($PwdCreds.appId)/isMSAApp/ and add permissions according to documentation" 
